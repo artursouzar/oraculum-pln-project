@@ -1,0 +1,5 @@
+OPENAI_API_KEY=sk-example-1234567890abcdef1234567890abcdef
+MODEL_CHAT=gpt-4o-mini
+MODEL_EMBEDDING=text-embedding-3-small
+MD_FOLDER=data/md
+INDEX_DIR=data/faiss_index

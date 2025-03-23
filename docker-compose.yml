@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  oraculum:
+    container_name: "oraculum"
+    build: .
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./app:/app/app  # Mapeamento correto da pasta app
+      - ./data:/app/data
+      - ./data/md:/app/data/md
+      - ./data/faiss_index:/app/data/faiss_index
+    env_file:
+      - app/.env
+    environment:
+      - FAISS_UMASK=000  # Permissões de arquivo
+      - STREAMLIT_SERVER_PORT=8501
+      - PYTHONPATH=/app/app:/app/app/views  # Caminho para imports
+    restart: unless-stopped
