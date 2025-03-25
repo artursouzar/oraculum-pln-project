@@ -1,4 +1,6 @@
 import os
+from typing import List
+import streamlit as st
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -32,19 +34,38 @@ def update_document(name, md_content):
     with open(file_path, "w", encoding="utf-8") as f:
         f.write(md_content)
 
-def list_documents():
-    """
-    Retorna a lista de arquivos com extensão .md presentes no diretório MD_FOLDER.
-    """
-    ensure_md_folder()
-    return [f for f in os.listdir(MD_FOLDER) if f.endswith(".md")]
+# def list_documents():
+#     """
+#     Retorna a lista de arquivos com extensão .md presentes no diretório MD_FOLDER.
+#     """
+#     ensure_md_folder()
+#     return [f for f in os.listdir(MD_FOLDER) if f.endswith(".md")]
+#
+# def get_document(name):
+#     """
+#     Lê e retorna o conteúdo do arquivo Markdown com o nome informado.
+#     """
+#     file_path = os.path.join(MD_FOLDER, name)
+#     if os.path.exists(file_path):
+#         with open(file_path, "r", encoding="utf-8") as f:
+#             return f.read()
+#     return ""
 
-def get_document(name):
-    """
-    Lê e retorna o conteúdo do arquivo Markdown com o nome informado.
-    """
-    file_path = os.path.join(MD_FOLDER, name)
-    if os.path.exists(file_path):
-        with open(file_path, "r", encoding="utf-8") as f:
+
+def list_documents() -> List[str]:
+    """Lista documentos processados no diretório MD"""
+    md_dir = os.getenv("MD_FOLDER", "data/md")
+    return [f for f in os.listdir(md_dir) if f.endswith(".md")]
+
+
+def get_document(filename: str) -> str:
+    """Obtém conteúdo de um documento específico"""
+    md_dir = os.getenv("MD_FOLDER", "data/md")
+    filepath = os.path.join(md_dir, filename)
+
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
             return f.read()
-    return ""
+    except Exception as e:
+        st.error(f"Erro ao ler documento: {str(e)}")
+        return ""
