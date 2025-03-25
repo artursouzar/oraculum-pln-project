@@ -7,7 +7,6 @@ from dotenv import load_dotenv
 import os
 import re
 import time
-from collections import OrderedDict
 from threading import Lock
 from file_md import list_documents, get_document
 
@@ -15,27 +14,23 @@ load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 MODEL_QA_GENERATOR = os.getenv("MODEL_QA_GENERATOR")
 
-# Configurações otimizadas
+# Configurações
 INITIAL_CHUNK_SIZE = 15000
 MAX_WORKERS = 4
-
+MAX_RETRIES = 3
+REQUEST_TIMEOUT = 45  # Aumentado para 45 segundos
 
 def dynamic_chunk_size(text_length):
-    """Ajusta dinamicamente o tamanho dos chunks"""
-    if text_length > 200000:  # Acima de 200k caracteres
+    if text_length > 200000:
         return 30000
     elif text_length > 100000:
         return 20000
     return INITIAL_CHUNK_SIZE
 
-
 def chunk_document(text):
-    """Divide o documento de forma otimizada"""
-    chunk_size = dynamic_chunk_size(len(text))
-
     splitter = RecursiveCharacterTextSplitter(
-        chunk_size=chunk_size,
-        chunk_overlap=int(chunk_size * 0.1),  # 10% de overlap
+        chunk_size=dynamic_chunk_size(len(text)),
+        chunk_overlap=int(dynamic_chunk_size(len(text)) * 0.1),
         length_function=len,
         separators=["\n\n", "\n", ". ", "! ", "? ", "; ", ", ", " "]
     )
@@ -43,7 +38,6 @@ def chunk_document(text):
 
 
 def process_chunk(args):
-    """Processa cada parte do documento"""
     chunk, prompt_template, params = args
     try:
         llm = ChatOpenAI(
@@ -51,46 +45,67 @@ def process_chunk(args):
             temperature=params['temperature'],
             model=MODEL_QA_GENERATOR,
             max_retries=2,
-            request_timeout=30
+            request_timeout=REQUEST_TIMEOUT  # Usando novo timeout
         )
         prompt = ChatPromptTemplate.from_template(prompt_template)
         chain = prompt | llm
 
-        result = chain.invoke({
-            "num_questions": params['questions_per_chunk'],
-            "context_keywords": params['context_keywords'],
-            "difficulty": params['difficulty'],
-            "document_text": chunk
-        }).content
+        questions_needed = params['questions_per_chunk']
+        result = ""
 
-        return result, None  # Resultado, Erro
+        for attempt in range(MAX_RETRIES):
+            try:
+                response = chain.invoke({
+                    "num_questions": questions_needed,
+                    "context_keywords": params['context_keywords'],
+                    "difficulty": params['difficulty'],
+                    "document_text": chunk
+                }).content
+
+                generated = len(re.findall(r"\*\*Pergunta \d+:", response))
+                result += response + "\n\n"
+
+                if generated >= questions_needed:
+                    break
+
+                questions_needed -= generated
+
+            except Exception as e:
+                if "timed out" in str(e).lower() and attempt < MAX_RETRIES - 1:
+                    time.sleep(2)  # Espera antes de retentar
+                    continue
+                else:
+                    raise e
+
+        return result, None
 
     except Exception as e:
         return None, str(e)
 
 
 def generate_qa_streaming(doc_text, prompt_text, params):
-    """Processamento paralelo com exibição progressiva"""
     chunks = chunk_document(doc_text)
     total_chunks = len(chunks)
 
     if total_chunks == 0:
         return ""
 
-    # Controle de estado
+    params['questions_per_chunk'] = max(2, params['num_questions'] // max(total_chunks, 1))
+
     st.session_state.start_time = time.time()
     st.session_state.qa_buffer = []
-    st.session_state.processing_errors = []
     st.session_state.lock = Lock()
     st.session_state.completed_chunks = 0
+    st.session_state.total_qa_generated = 0
+    st.session_state.show_stream = True  # Novo estado para controle de exibição
 
-    # Cálculo dinâmico de questões por chunk
-    params['questions_per_chunk'] = max(1, params['num_questions'] // max(total_chunks, 1))
+    # Container persistente para o stream
+    stream_container = st.container()
 
-    # Configuração da interface
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    results_container = st.container()
+    with stream_container:
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        results_container = st.container()
 
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         futures = {executor.submit(process_chunk, (chunk, prompt_text, params)): i
@@ -103,32 +118,79 @@ def generate_qa_streaming(doc_text, prompt_text, params):
             with st.session_state.lock:
                 st.session_state.completed_chunks += 1
                 progress = st.session_state.completed_chunks / total_chunks
-                progress_bar.progress(progress)
 
-                elapsed = time.time() - st.session_state.start_time
-                status_text.markdown(f"""
-                    **Progresso:** {st.session_state.completed_chunks}/{total_chunks} chunks  
-                    **Tempo decorrido:** {elapsed:.1f}s  
-                    **QAs gerados:** {len(st.session_state.qa_buffer)}
-                """)
+                with stream_container:
+                    progress_bar.progress(min(progress, 1.0))
 
-                if result:
-                    st.session_state.qa_buffer.append(result)
-                    # Atualização parcial da interface
-                    with results_container:
-                        display_qa_chunk(result)
+                    if result:
+                        qa_count = len(re.findall(r"\*\*Pergunta \d+:", result))
+                        st.session_state.total_qa_generated += qa_count
+                        st.session_state.qa_buffer.append(result)
 
-                if error:
-                    st.session_state.processing_errors.append(error)
+                        with results_container:
+                            display_qa_chunk(result)
 
-    # Processamento final
-    final_content = clean_qa_content("\n\n".join(st.session_state.qa_buffer))
+                    elapsed = time.time() - st.session_state.start_time
+                    status_text.markdown(f"""
+                        **Progresso:** {st.session_state.completed_chunks}/{total_chunks} chunks  
+                        **Tempo decorrido:** {elapsed:.1f}s  
+                        **QAs coletados:** {st.session_state.total_qa_generated}
+                    """)
 
-    # Limpeza do estado
-    progress_bar.empty()
-    status_text.empty()
+                    if error:
+                        st.error(f"Erro no chunk {chunk_index + 1}: {error}")
 
-    return final_content
+    full_content = clean_qa_content("\n\n".join(st.session_state.qa_buffer), params['num_questions'])
+
+    final_count = len(re.findall(r"\*\*Pergunta \d+:", full_content))
+    if final_count < params['num_questions']:
+        additional_qas = generate_additional_qas(doc_text, params['num_questions'] - final_count, params)
+        full_content += "\n\n" + additional_qas
+
+    return clean_qa_content(full_content, params['num_questions'])
+
+
+def generate_additional_qas(doc_text, num_needed, params):
+    """Gera questões adicionais para completar o total solicitado"""
+    try:
+        llm = ChatOpenAI(
+            api_key=OPENAI_API_KEY,
+            temperature=params['temperature'],
+            model=MODEL_QA_GENERATOR
+        )
+        prompt = ChatPromptTemplate.from_template("""
+        Gere no mínimo de {num_questions} perguntas e respostas adicionais seguindo as mesmas regras.
+        Documento: {document_text}
+        """)
+
+        chain = prompt | llm
+        result = chain.invoke({
+            "num_questions": num_needed,
+            "document_text": doc_text[-10000:]
+        })
+        return result.content
+
+    except Exception as e:
+        st.error(f"Erro ao gerar complemento: {str(e)}")
+        return ""
+
+
+def clean_qa_content(content, num_questions):
+    qa_pairs = []
+    seen = set()
+
+    # Regex melhorado para capturar pares completos
+    pattern = r"(\*\*Pergunta \d+:\*\*.*?)(?=\n\*\*Pergunta \d+:\*\*|\Z)"
+
+    for pair in re.findall(pattern, content, re.DOTALL):
+        simplified = re.sub(r'\s+', ' ', pair).strip()
+        if simplified not in seen:
+            seen.add(simplified)
+            qa_pairs.append(pair)
+        if len(qa_pairs) >= num_questions:
+            break
+
+    return "\n\n".join(qa_pairs[:num_questions])
 
 
 def display_qa_chunk(content):
@@ -141,25 +203,9 @@ def display_qa_chunk(content):
             st.markdown(pair)
 
 
-def clean_qa_content(content):
-    """Otimização na limpeza de conteúdo"""
-    qa_pairs = content.split("\n\n")
-    seen = set()
-    unique_pairs = []
-
-    for pair in qa_pairs:
-        simplified = re.sub(r'\s+', ' ', pair).strip()
-        if simplified not in seen:
-            seen.add(simplified)
-            unique_pairs.append(pair)
-
-    return "\n\n".join(unique_pairs)
-
-
 def show_qa_generator():
-    st.title("📝 Gerador de Perguntas e Respostas (Otimizado)")
+    st.title("📝 Gerador de Perguntas e Respostas")
 
-    # Gerenciamento de estado
     session_defaults = {
         'qa_content': None,
         'show_results': False,
@@ -172,7 +218,6 @@ def show_qa_generator():
         if key not in st.session_state:
             st.session_state[key] = value
 
-    # Seletor de documentos
     docs = list_documents()
     if not docs:
         st.warning("Nenhum documento disponível. Faça upload primeiro.")
@@ -189,13 +234,11 @@ def show_qa_generator():
         })
     )
 
-    # Atualização do documento
     if st.session_state.selected_doc != new_selection:
         st.session_state.selected_doc = new_selection
         st.session_state.doc_text = get_document(new_selection)
         st.rerun()
 
-    # Estatísticas do documento
     if st.session_state.doc_text:
         with st.expander("📊 Métricas do Documento", expanded=True):
             col1, col2 = st.columns(2)
@@ -208,20 +251,21 @@ def show_qa_generator():
 
             with col2:
                 st.metric("Palavras Únicas", f"{len(set(words)):,d}".replace(",", "."))
-                st.metric("Tamanho Médio Palavra", f"{sum(len(w) for w in words) / len(words):.1f}")
+                st.metric("Tamanho Médio", f"{sum(len(w) for w in words) / len(words):.1f}")
 
-    # Formulário de geração
     with st.form("qa_form"):
         default_prompt = """Você é um especialista em criação de conteúdos educacionais. 
-             Gere no mínimo de {num_questions} perguntas e respostas baseadas no documento abaixo, seguindo estas regras:
+        Gere no mínimo {num_questions} perguntas e respostas baseadas no documento abaixo:
 
-             1. Foco nos contextos: {context_keywords} (priorizar estes termos)
-             2. Formato de resposta: **Pergunta X:** [texto] \\n\\n **Resposta X:** [texto]
-             3. Nível de detalhe: adequado para profissionais de nível {difficulty}
-             4. Inclua exemplos práticos quando relevante
+        REGRAS:
+        1. Foco nos contextos: {context_keywords} (priorizar estes termos)
+        2. Formato obrigatório: 
+        **Pergunta {{número}}:** [texto] \\n\\n **Resposta {{número}}:** [texto]
+        3. Nível de detalhe: adequado para profissionais de nível {difficulty}
+        4. Inclua exemplos quando relevante
 
-             Documento:
-             {document_text}"""
+        DOCUMENTO:
+        {document_text}"""
 
         prompt_text = st.text_area(
             "Instruções para geração:",
@@ -258,7 +302,6 @@ def show_qa_generator():
                 )
                 st.session_state.show_results = True
 
-                # Exibir métricas finais
                 elapsed = time.time() - st.session_state.start_time
                 st.toast(f"Processo concluído em {elapsed:.1f} segundos", icon="✅")
 
@@ -267,7 +310,6 @@ def show_qa_generator():
             finally:
                 st.session_state.processing = False
 
-    # Exibição de resultados
     if st.session_state.show_results and st.session_state.qa_content:
         st.markdown("---")
         st.subheader("Resultado Final")
@@ -284,13 +326,24 @@ def show_qa_generator():
 
 
 def display_qa_results(content):
-    """Exibição otimizada de resultados finais"""
-    qa_pairs = content.split("\n\n")
+    # Regex melhorado para separar perguntas e respostas
+    qa_pairs = re.findall(r"(\*\*Pergunta \d+:\*\*.*?)(?=\n\*\*Pergunta \d+:\*\*|\Z)", content, re.DOTALL)
 
     for i, pair in enumerate(qa_pairs, 1):
         with st.container():
-            st.markdown(f"**Pergunta {i}**")
-            st.markdown(pair.replace("\\n\\n", "\n\n"))
+            # Separa pergunta e resposta
+            parts = re.split(r"\*\*Resposta \d+:\*\*", pair)
+            if len(parts) == 2:
+                question = parts[0].strip()
+                answer = parts[1].strip()
+
+                st.markdown(f"**Pergunta {i}**")
+                st.markdown(question)
+                st.markdown(f"**Resposta {i}**")
+                st.markdown(answer)
+            else:
+                st.markdown(pair.replace("\\n\\n", "\n\n"))
+
             st.write("---")
 
 
