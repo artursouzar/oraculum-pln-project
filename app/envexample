@@ -3,3 +3,4 @@ MODEL_CHAT=gpt-4o-mini
 MODEL_EMBEDDING=text-embedding-3-small
 MD_FOLDER=data/md
 INDEX_DIR=data/faiss_index
+MODEL_QA_GENERATOR=gpt-4o-mini
