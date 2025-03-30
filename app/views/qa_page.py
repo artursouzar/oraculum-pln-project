@@ -18,7 +18,7 @@ MODEL_QA_GENERATOR = os.getenv("MODEL_QA_GENERATOR")
 INITIAL_CHUNK_SIZE = 15000
 MAX_WORKERS = 4
 MAX_RETRIES = 3
-REQUEST_TIMEOUT = 45  # Aumentado para 45 segundos
+REQUEST_TIMEOUT = 60  # Aumentado para 45 segundos
 
 def dynamic_chunk_size(text_length):
     if text_length > 200000:
@@ -45,7 +45,7 @@ def process_chunk(args):
             temperature=params['temperature'],
             model=MODEL_QA_GENERATOR,
             max_retries=2,
-            request_timeout=REQUEST_TIMEOUT  # Usando novo timeout
+            timeout=REQUEST_TIMEOUT  # Usando novo timeout
         )
         prompt = ChatPromptTemplate.from_template(prompt_template)
         chain = prompt | llm
@@ -156,7 +156,8 @@ def generate_additional_qas(doc_text, num_needed, params):
         llm = ChatOpenAI(
             api_key=OPENAI_API_KEY,
             temperature=params['temperature'],
-            model=MODEL_QA_GENERATOR
+            model=MODEL_QA_GENERATOR,
+            timeout=REQUEST_TIMEOUT
         )
         prompt = ChatPromptTemplate.from_template("""
         Gere no mínimo de {num_questions} perguntas e respostas adicionais seguindo as mesmas regras.
