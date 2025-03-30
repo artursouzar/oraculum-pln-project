@@ -73,8 +73,10 @@ def show():
 
         # Busca RAG no FAISS
         try:
-            docs = search_documents(prompt, k=4)
+            docs = search_documents(prompt, k=10)
             # context = "\n\n".join([f"Fonte {i + 1}: {d.page_content}" for i, d in enumerate(docs)])
+            import pprint
+            pprint.pprint(docs)
 
             context = ""
 

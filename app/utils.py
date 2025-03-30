@@ -5,6 +5,7 @@ from typing import List
 from pydantic import BaseModel, Field
 from langchain_core.chat_history import BaseChatMessageHistory
 from langchain_core.messages import BaseMessage
+from file_md import list_documents
 
 
 class InMemoryHistory(BaseChatMessageHistory, BaseModel):
@@ -81,3 +82,15 @@ def convert_file_to_md(uploaded_file):
     md_content = result.document.export_to_markdown()
 
     return md_content
+
+
+def get_selected_document_text():
+    """Retorna o texto do documento selecionado"""
+    docs = list_documents()  # Sua função existente
+    selected = st.session_state.get("selected_doc")
+
+    if not selected and docs:
+        selected = docs[0]
+
+    doc_text = get_document(selected) if selected else ""
+    return doc_text

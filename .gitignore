@@ -543,3 +543,4 @@ FodyWeavers.xsd
 .data/md
 .data/faiss_index.env
 data/
+app/.env
