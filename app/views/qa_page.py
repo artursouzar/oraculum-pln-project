@@ -255,7 +255,7 @@ def show_qa_generator():
                 st.metric("Tamanho Médio", f"{sum(len(w) for w in words) / len(words):.1f}")
 
     with st.form("qa_form"):
-        default_prompt = """Você é um especialista em criação de conteúdos educacionais. 
+        default_prompt = """Você é um especialista em direitos fundamentais do brasil. 
         Gere no mínimo {num_questions} perguntas e respostas baseadas no documento abaixo:
 
         REGRAS:

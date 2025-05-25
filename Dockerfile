@@ -3,10 +3,8 @@
 FROM python:3.12-slim
 LABEL authors="tiagocardoso"
 
-# dont write pyc files
-# dont buffer to stdout/stderr
-ENV PYTHONDONTWRITEBYTECODE 1
-ENV PYTHONUNBUFFERED 1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
@@ -18,9 +16,9 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
+RUN pip install --default-timeout=300 -r requirements.txt
 
-RUN pip install -r requirements.txt
-
+COPY app/ app/   
 
 # Configura variáveis de ambiente
 ENV STREAMLIT_SERVER_PORT=8501
