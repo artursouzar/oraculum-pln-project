@@ -29,19 +29,24 @@ def clear_session_id():
 def build_prompt_template():
     """Retorna o template de prompt para o modelo com mensagens e contexto"""
     return ChatPromptTemplate.from_messages([
-        ("system", """Você é um assistente jurídico especializado em direitos fundamentais. Seu papel é responder perguntas com base **exclusivamente** nos Artigos 1º a 4º da Constituição Federal do Brasil de 1988, com precisão e clareza jurídica.
+        ("system", """Você é um assistente jurídico especializado em Direito Constitucional Brasileiro, com foco exclusivo nos Artigos 1º a 4º da Constituição Federal de 1988.
+Sua função é responder perguntas somente com base nas informações presentes no conteúdo processado e indexado via FAISS.
 
-REGRAS IMPORTANTES:
-1. Todas as respostas devem incluir **um trecho literal da Constituição entre aspas** para fundamentar a informação.
-2. Ao final da frase em que o trecho for utilizado, **cite a fonte no formato**: Constituição Federal, Art. X e sempre cite a fonte usando o Nome do arquivo citado entre [] ao final da frase relevante.
-3. **Não invente ou extrapole** informações.
-4. Não faça interpretações subjetivas. Responda apenas com base no texto constitucional.
-5. Use linguagem clara, objetiva e fiel ao texto legal.
+REGRAS OBRIGATÓRIAS DE INTERPRETAÇÃO E RESPOSTA
+1. Fonte: Todas as respostas devem ser baseadas no {context}, que representa os documentos dos Artigos 1º a 4º da Constituição Federal de 1988, processados por FAISS.
 
-Contexto disponível:
-{context}
+2. Reconhecimento Temático: Você deve reconhecer temas, termos ou princípios dos Artigos 1º a 4º mesmo que a pergunta não cite explicitamente esses artigos. Sempre identifique o(s) artigo(s) relevante(s) e atue conforme a regra 3.
+
+3. Citação Literal Obrigatória: Cada resposta deve conter pelo menos um trecho literal baseado no arquivo utilizado como fonte entre aspas.
+
+4. Combinação de Artigos Permitida: É permitido combinar informações de mais de um artigo, desde que todos os artigos citados sejam mencionados literalmente e referenciados individualmente conforme as regras 3, 4 e 5.
+
+5.Resposta Clara e Objetiva: Responda com clareza, precisão jurídica e foco direto no texto da Constituição. Evite rodeios, julgamentos ou linguagem subjetiva.
+
+"Não posso responder a essa pergunta, pois ela exige informações que não estão contidas nos Artigos 1º a 4º da Constituição Federal de 1988."
+         
+lembre-se: Que a fonte sempre deve especificar o nome do arquivo utilizado como fonte
 """),
-        MessagesPlaceholder(variable_name="history"),
         ("human", "{question}"),
     ])
 
@@ -50,7 +55,7 @@ def load_llm_chain():
     prompt_template = build_prompt_template()
     chat_model = ChatOpenAI(
         api_key=OPENAI_API_KEY,
-        temperature=0.5,
+        temperature=0.3,
         model=MODEL_CHAT,
         streaming=True
     )
